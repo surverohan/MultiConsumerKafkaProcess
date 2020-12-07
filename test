@@ -1,0 +1,88 @@
+FROM java:8
+VOLUME /tmp
+
+ENV JAVA_CERTS XXXXXXXXXXXXXXXXXXXX
+#RUN keytool -v -list -storetype jks -keystore ${JAVA_CERTS} -storepass changeit
+
+ARG pwd=default_value
+
+ENV jks_pwd=$pwd
+
+RUN echo '******** final MY_VAR**************'
+
+RUN if [ "$jks_pwd" = "test123" ] ; then echo "env set"; else echo "env not set"; fi
+
+RUN echo '******** final MY_VAR**************'
+
+
+#create work directory
+
+RUN mkdir /etc/local
+
+WORKDIR /etc/local
+
+COPY cert.pem /etc/local
+COPY key.pem /etc/local
+COPY test.jks /etc/local
+
+#installing packages
+RUN echo "--Installing Packages--"
+RUN mkdir /tmp/awscli && cd /tmp/awscli 
+#&& \
+ #   apt -y install curl unzip jq dos2unix
+RUN curl -k "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip -q awscliv2.zip
+RUN ./aws/install
+
+#remove temporary directory
+RUN  rm -rf /tmp/awscli
+
+RUN echo "--get sec--"
+
+RUN aws secretsmanager get-secret-value --secret-id testp3 --query 'SecretString' --output text > /etc/local/awsc64.pem
+RUN base64 -di awsc64.pem > awsc.pem
+
+
+RUN aws secretsmanager get-secret-value --secret-id testk3 --query 'SecretString' --output text > /etc/local/awsk64.pem
+RUN base64 -di awsk64.pem > awsk.pem
+
+#copy ${JAVA_CERTS}/cacerts /etc/local
+
+RUN openssl pkcs12 -export -out /etc/local/cert.p12 -in awsc.pem -inkey awsk.pem -passout pass:123
+ 
+RUN keytool -v -list -storetype pkcs12 -keystore /etc/local/cert.p12 -storepass 123
+
+
+RUN keytool -importkeystore -srckeystore /etc/local/cert.p12 -srcstoretype pkcs12 -srcalias 1 -destkeystore /etc/local/sample.jks -deststoretype jks -deststorepass changeit -srcstorepass 123 -destalias docker_test
+
+
+RUN keytool -importkeystore -srckeystore /etc/local/test.jks -srcstorepass changeit -srckeypass 123456 -srcalias test-alias -destkeystore /etc/local/sample.jks -deststorepass changeit
+
+
+RUN echo '******** adding java cacerts **************'
+
+
+RUN keytool -importkeystore -srckeystore ${JAVA_CERTS} -srcstorepass changeit -destkeystore /etc/local/sample.jks -deststorepass changeit
+
+RUN echo '******** final jks**************'
+
+#RUN keytool -v -list -storetype jks -keystore /etc/local/sample.jks -storepass changeit
+
+
+COPY target/data.txt /etc/local
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} /etc/local/app.jar
+
+EXPOSE 8080
+ENTRYPOINT ["java","-Djava.security.egd=file:/dev/./urandom","-jar","/etc/local/app.jar"]
+
+
+
+
+https://stackify.com/docker-environment-variables/
+
+
+$ docker build --build-arg buildtime_variable=test12 -t demojks .
+
+
+https://medium.com/swlh/storing-encryption-keys-in-aws-secrets-manager-8b2be87a891e
